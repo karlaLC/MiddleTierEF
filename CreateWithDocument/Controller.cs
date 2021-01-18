@@ -1,1 +1,75 @@
 
+namespace PLC.API.Controllers
+{
+    [RoutePrefix("clients")]
+    public class ClientController : BaseComponentApiController<IClientService, ClientDto,int>
+    {
+        #region Constructor
+        private readonly IClientService _clientService;
+        public ClientController(IClientService clientService) : base(clientService)
+        {
+            _clientService = clientService;
+        }
+        #endregion
+
+        #region Custom Code
+
+        [PLCApiAuthorize(ClientActions.Create)]
+        [Route("create-with-document"), HttpPost]
+        public async Task<HttpResponseMessage> CreateClientWithDocument()
+        {
+            DocumentDto documentDto = this.GetDocumentFromRequest(HttpContext.Current, out ClientDto clientDto);
+
+            if (documentDto == null)
+            {
+                return Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Unable to upload client's logo");
+            }
+
+            clientDto.Logo = documentDto;
+
+            int id = await Service.CreateAsync(clientDto);
+
+            if (id > 0)
+            {
+                SaveFiles(this, clientDto.LogoId, clientDto.Logo);
+
+                // success
+                return Request.CreateResponse(HttpStatusCode.Created, id);
+            }
+
+            if (id == 0)
+            {
+                // not created
+                return Request.CreateResponse(HttpStatusCode.NoContent);
+            }
+
+            // fail
+            return Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Unable to create Client");
+        }
+
+        private void SaveFiles(ApiController self, int? documentId, DocumentDto documentDto)
+        {
+            // FileBasePath is set to "Uploads" in web config
+            string fileBasePath = ConfigurationManager.AppSettings["FileBasePath"];
+            string rootPath = HttpContext.Current.Server.MapPath($"~/{fileBasePath}/");
+
+            foreach (HttpPostedFile postedFile in HttpContext.Current.Request.Files.ToEnumerable())
+            {
+                if (postedFile == null)
+                {
+                    continue;
+                }
+
+                string directory = $"{rootPath}{documentDto.CreatedDate:MM-dd-yyyy}";
+                Directory.CreateDirectory(directory);
+
+                string fullPath = $"{directory}\\{documentId}{documentDto.Extension}";
+                postedFile.SaveAs(fullPath);
+                self.ImageThumbnailPdf(documentDto, fullPath);
+            }
+        }
+
+        #endregion
+
+    }
+}
